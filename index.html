@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Fingerprint Attendance</title>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+header {
+  background: #172554;
+  color: white;
+  padding: 22px;
+  text-align: center;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 30px auto;
+  padding: 15px;
+}
+
+h2 {
+  margin-bottom: 20px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  gap: 18px;
+  margin-bottom: 30px;
+}
+
+.card {
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 3px 12px #0001;
+}
+
+.card h3 {
+  color: #64748b;
+  font-size: 15px;
+}
+
+.card p {
+  font-size: 30px;
+  font-weight: bold;
+  margin-top: 12px;
+  color: #2563eb;
+}
+
+.panel {
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  margin-bottom: 25px;
+  box-shadow: 0 3px 12px #0001;
+}
+
+input {
+  padding: 12px;
+  margin: 6px 4px 6px 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+button {
+  padding: 12px 18px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+}
+
+th, td {
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+th {
+  background: #eff6ff;
+}
+
+.present {
+  color: green;
+  font-weight: bold;
+}
+
+.absent {
+  color: red;
+  font-weight: bold;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+@media(max-width:600px) {
+  .panel { padding: 15px; }
+  th,td { padding: 9px; }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>🔐 Smart Fingerprint Attendance</h1>
+  <p>ESP32 IoT Attendance Management System</p>
+</header>
+
+<div class="container">
+
+  <h2>Admin Dashboard</h2>
+
+  <div class="stats">
+    <div class="card">
+      <h3>Total Students</h3>
+      <p id="total">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Present</h3>
+      <p id="present">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Absent</h3>
+      <p id="absent">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Attendance</h3>
+      <p id="percentage">0%</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Register Student</h2>
+
+    <input id="name" placeholder="Student Name">
+    <input id="roll" placeholder="Roll Number">
+    <input id="finger" type="number" placeholder="Fingerprint ID">
+
+    <button onclick="addStudent()">Add Student</button>
+  </div>
+
+  <div class="panel">
+    <h2>Student Attendance</h2>
+
+    <input id="search" placeholder="Search student..."
+      oninput="render()">
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Roll No</th>
+            <th>Name</th>
+            <th>Fingerprint ID</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="studentTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Attendance History</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Roll No</th>
+            <th>Date</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let students = JSON.parse(
+  localStorage.getItem("students") || "[]"
+);
+
+let history = JSON.parse(
+  localStorage.getItem("history") || "[]"
+);
+
+function save() {
+  localStorage.setItem("students",
+    JSON.stringify(students));
+  localStorage.setItem("history",
+    JSON.stringify(history));
+}
+
+function addStudent() {
+  const name = document.getElementById("name").value.trim();
+  const roll = document.getElementById("roll").value.trim();
+  const finger = document.getElementById("finger").value.trim();
+
+  if (!name || !roll || !finger) {
+    alert("Please enter all details");
+    return;
+  }
+
+  if (students.some(s => s.roll === roll ||
+      s.finger === finger)) {
+    alert("Roll number or fingerprint ID already exists");
+    return;
+  }
+
+  students.push({
+    name, roll, finger, present: false
+  });
+
+  save();
+  render();
+
+  document.getElementById("name").value = "";
+  document.getElementById("roll").value = "";
+  document.getElementById("finger").value = "";
+}
+
+function markAttendance(index) {
+  const student = students[index];
+
+  if (student.present) {
+    alert("Attendance already marked today");
+    return;
+  }
+
+  student.present = true;
+
+  const now = new Date();
+
+  history.unshift({
+    name: student.name,
+    roll: student.roll,
+    date: now.toLocaleDateString(),
+    time: now.toLocaleTimeString()
+  });
+
+  save();
+  render();
+}
+
+function render() {
+  const search = document.getElementById("search")
+    .value.toLowerCase();
+
+  const table = document.getElementById("studentTable");
+  table.innerHTML = "";
+
+  students.forEach((s, index) => {
+    if (!(s.name.toLowerCase().includes(search) ||
+          s.roll.toLowerCase().includes(search))) return;
+
+    table.innerHTML += `
+      <tr>
+        <td>${s.roll}</td>
+        <td>${s.name}</td>
+        <td>${s.finger}</td>
+        <td class="${s.present ? 'present':'absent'}">
+          ${s.present ? 'Present':'Absent'}
+        </td>
+        <td>
+          <button onclick="markAttendance(${index})"
+            ${s.present ? 'disabled':''}>
+            ${s.present ? 'Marked':'Mark Present'}
+          </button>
+        </td>
+      </tr>`;
+  });
+
+  const present = students.filter(s => s.present).length;
+  const total = students.length;
+  const absent = total - present;
+
+  document.getElementById("total").textContent = total;
+  document.getElementById("present").textContent = present;
+  document.getElementById("absent").textContent = absent;
+
+  document.getElementById("percentage").textContent =
+    (total ? Math.round(present / total * 100) : 0) + "%";
+
+  document.getElementById("history").innerHTML =
+    history.map(h => `
+      <tr>
+        <td>${h.name}</td>
+        <td>${h.roll}</td>
+        <td>${h.date}</td>
+        <td>${h.time}</td>
+      </tr>
+    `).join("");
+}
+
+render();
+</script>
+
+</body>
+</html>Log in
+Sign up for free
+i want to create a web
+
+Awesome! I can help you create a website from scratch, including the design, frontend, backend, and functionality.
+
+What kind of website do you want to create?
+
+For example:
+
+🛒 E-commerce website – Sell products online.
+
+🏢 Business website – Showcase your company or services.
+
+🎨 Portfolio website – Display your work and skills.
+
+📰 Blog website – Publish articles and content.
+
+💬 Social media website – Users, profiles, posts, and messaging.
+
+🎓 Educational website – Courses, lessons, and quizzes.
+
+🚀 Something unique – Your own website idea.
+
+What website do you have in mind?
+
+You can describe your idea in simple words. I'll help you build it step by step.
+
+
+For creating a web app, here’s one no-code builder option.
+Learn more
+
+
+Emergent Labs
+Build Real Apps Without Code
+Describe your idea, Emergent builds a production-ready app in minutes. Free — 10 credits included.
+Ad
+
+projrct
+
+Great! Are you looking to create a project website?
+
+What is your project about? Tell me a little about your idea, and we can build it together from scratch. 🚀
+
+
+Learn more
+
+
+Jotform
+Free Web Design Quote PDF
+Want to create your own web design quote PDF? Edit and download it with Jotform
+Ad
+
+attenndence
+
+Great! Let's create an Attendance Management System Website. 🎓
+
+The website can help teachers manage student attendance and allow students to check their attendance records.
+
+Proposed features
+Login page – Admin, teacher and student login.
+
+Dashboard – Total students, present, absent and attendance percentage.
+
+Mark Attendance – Mark students as Present, Absent or Late.
+
+Attendance Records – View attendance by date.
+
+Reports – Generate daily and monthly attendance reports.
+
+Student Management – Add, edit and delete student details.
+
+Let's decide how to build it
+1. Where will this attendance system be used?
+
+
+School
+
+College
+
+Office
+2. Which technology do you prefer?
+
+
+HTML, CSS and JavaScript (beginner-friendly)
+
+React and Firebase
+
+Python and Django
+
+You choose for me
+3. Website design
+
+
+Modern professional
+
+Simple and clean
+
+Advanced admin dashboard
+I'll help you build the complete working project, step by step!
+
+
+This might also interest you.
+Learn more
+
+
+Agenty Analytics Pvt Ltd
+Group Scheduling Software
+Manage classes, workshops and group bookings.
+Ad
+
+fingerfrint attence system using esp32
+
+Excellent! Let's build an IoT-Based Fingerprint Attendance Management System using ESP32.
+
+This is a great college engineering project. It will use a fingerprint sensor to identify students, an ESP32 microcontroller to process attendance, and a website to display attendance records automatically.
+
+1. Project overview
+DIY Biometric Attendance System using ESP32
+ – QuartzComponents
+ 
+How it works:
+
+A student places their finger on the fingerprint sensor.
+
+The sensor scans and matches the fingerprint.
+
+ESP32 identifies the registered student.
+
+Attendance is automatically recorded with date and time.
+
+Data is sent to a web server/database using Wi-Fi.
+
+The website displays attendance records and reports.
+
+2. Hardware components
+ESP32 Scheda di Sviluppo ESP32-WROOM-32 con WiFi e Bluetooth 4MB Flash 38 pin - Vendita Online su ZioTester
+ 
+ESP32 Development Board
+
+Main controller with built-in Wi-Fi.
+
+AS608 Fingerprint Module | Shop.com.mm
+ 
+Fingerprint Sensor (AS608 / R307)
+
+Scans and matches fingerprints.
+
+LCD1602 I2C Module, White color with blue background, 16x2 characters LCD, 3.3V/5V
+ 
+LCD Display
+
+Shows messages such as Fingerprint Matched and Attendance Marked.
+
+DS3231 Real Time Clock Module - Micro Robotics
+ 
+RTC Module (DS3231)
+
+Provides accurate date and time if Wi-Fi is unavailable.
+
+Other components: jumper wires, breadboard, USB cable and power supply.
+
+3. System architecture
+Smart Attendance System: An Internet of Things (IoT)-Enabled Concept
+ 
+The connection will work like this:
+
+Fingerprint Sensor
+
+Student identification
+
+ESP32
+
+Process fingerprint ID and attendance
+
+Wi-Fi / Internet
+
+Firebase Database
+
+Store attendance records
+
+Web Attendance Dashboard
+
+Admin, student records and reports
+
+4. ESP32 connection diagram
+Example connections for a UART fingerprint sensor and I2C display:
+
+Component
+
+ESP32 pin
+
+Fingerprint TX
+
+GPIO 16 (RX2)
+
+Fingerprint RX
+
+GPIO 17 (TX2)
+
+LCD SDA
+
+GPIO 21
+
+LCD SCL
+
+GPIO 22
+
+RTC SDA
+
+GPIO 21
+
+RTC SCL
+
+GPIO 22
+
+GND
+
+GND
+
+Check the fingerprint module's voltage and UART logic-level requirements before connecting it.
+
+5. Website dashboard design
+Inforida: #1 AI Powered School App
+ 
+CAMU | Reviews, Pricing & Demos - SoftwareAdvice AU
+ 
+Student Attendance Management System | Skolaro
+
+ 
+The website will have:
+
+Admin login
+
+Dashboard with total students and present/absent counts
+
+Student registration
+
+Fingerprint ID management
+
+Live attendance records
+
+Daily and monthly reports
+
+Attendance percentage
+
+Export attendance to Excel or CSV
+
+Privacy: Keep fingerprint templates inside the fingerprint module where possible. Send only the matched student ID and attendance information to the database.
+
+6. Let's start building your project
+I suggest building it in this order:
+
+ESP32 and fingerprint sensor connection.
+
+Fingerprint registration and matching.
+
+Attendance recording with date and time.
+
+Firebase database connection.
+
+Complete website and admin dashboard.
+
+One important question:
+
+Which fingerprint sensor do you have?
+
+
+R307
+
+AS608
+
+R503
+
+Other / Not purchased yet
+
+web code
+
+Let's create the Fingerprint Attendance System Website using HTML, CSS and JavaScript. It will have a modern admin dashboard that can later connect to your ESP32 and Firebase.
+
+1. Website features
+Admin dashboard
+
+Total students
+
+Present and absent students
+
+Attendance percentage
+
+Student registration
+
+Fingerprint ID records
+
+Attendance history
+
+Search students
+
+Daily attendance table
+
+2. Complete website code
+Create a file named index.html and paste this code.
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Fingerprint Attendance</title>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+header {
+  background: #172554;
+  color: white;
+  padding: 22px;
+  text-align: center;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 30px auto;
+  padding: 15px;
+}
+
+h2 {
+  margin-bottom: 20px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  gap: 18px;
+  margin-bottom: 30px;
+}
+
+.card {
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 3px 12px #0001;
+}
+
+.card h3 {
+  color: #64748b;
+  font-size: 15px;
+}
+
+.card p {
+  font-size: 30px;
+  font-weight: bold;
+  margin-top: 12px;
+  color: #2563eb;
+}
+
+.panel {
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  margin-bottom: 25px;
+  box-shadow: 0 3px 12px #0001;
+}
+
+input {
+  padding: 12px;
+  margin: 6px 4px 6px 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+button {
+  padding: 12px 18px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+}
+
+th, td {
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+th {
+  background: #eff6ff;
+}
+
+.present {
+  color: green;
+  font-weight: bold;
+}
+
+.absent {
+  color: red;
+  font-weight: bold;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+@media(max-width:600px) {
+  .panel { padding: 15px; }
+  th,td { padding: 9px; }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>🔐 Smart Fingerprint Attendance</h1>
+  <p>ESP32 IoT Attendance Management System</p>
+</header>
+
+<div class="container">
+
+  <h2>Admin Dashboard</h2>
+
+  <div class="stats">
+    <div class="card">
+      <h3>Total Students</h3>
+      <p id="total">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Present</h3>
+      <p id="present">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Absent</h3>
+      <p id="absent">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Attendance</h3>
+      <p id="percentage">0%</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Register Student</h2>
+
+    <input id="name" placeholder="Student Name">
+    <input id="roll" placeholder="Roll Number">
+    <input id="finger" type="number" placeholder="Fingerprint ID">
+
+    <button onclick="addStudent()">Add Student</button>
+  </div>
+
+  <div class="panel">
+    <h2>Student Attendance</h2>
+
+    <input id="search" placeholder="Search student..."
+      oninput="render()">
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Roll No</th>
+            <th>Name</th>
+            <th>Fingerprint ID</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="studentTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Attendance History</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Roll No</th>
+            <th>Date</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let students = JSON.parse(
+  localStorage.getItem("students") || "[]"
+);
+
+let history = JSON.parse(
+  localStorage.getItem("history") || "[]"
+);
+
+function save() {
+  localStorage.setItem("students",
+    JSON.stringify(students));
+  localStorage.setItem("history",
+    JSON.stringify(history));
+}
+
+function addStudent() {
+  const name = document.getElementById("name").value.trim();
+  const roll = document.getElementById("roll").value.trim();
+  const finger = document.getElementById("finger").value.trim();
+
+  if (!name || !roll || !finger) {
+    alert("Please enter all details");
+    return;
+  }
+
+  if (students.some(s => s.roll === roll ||
+      s.finger === finger)) {
+    alert("Roll number or fingerprint ID already exists");
+    return;
+  }
+
+  students.push({
+    name, roll, finger, present: false
+  });
+
+  save();
+  render();
+
+  document.getElementById("name").value = "";
+  document.getElementById("roll").value = "";
+  document.getElementById("finger").value = "";
+}
+
+function markAttendance(index) {
+  const student = students[index];
+
+  if (student.present) {
+    alert("Attendance already marked today");
+    return;
+  }
+
+  student.present = true;
+
+  const now = new Date();
+
+  history.unshift({
+    name: student.name,
+    roll: student.roll,
+    date: now.toLocaleDateString(),
+    time: now.toLocaleTimeString()
+  });
+
+  save();
+  render();
+}
+
+function render() {
+  const search = document.getElementById("search")
+    .value.toLowerCase();
+
+  const table = document.getElementById("studentTable");
+  table.innerHTML = "";
+
+  students.forEach((s, index) => {
+    if (!(s.name.toLowerCase().includes(search) ||
+          s.roll.toLowerCase().includes(search))) return;
+
+    table.innerHTML += `
+      <tr>
+        <td>${s.roll}</td>
+        <td>${s.name}</td>
+        <td>${s.finger}</td>
+        <td class="${s.present ? 'present':'absent'}">
+          ${s.present ? 'Present':'Absent'}
+        </td>
+        <td>
+          <button onclick="markAttendance(${index})"
+            ${s.present ? 'disabled':''}>
+            ${s.present ? 'Marked':'Mark Present'}
+          </button>
+        </td>
+      </tr>`;
+  });
+
+  const present = students.filter(s => s.present).length;
+  const total = students.length;
+  const absent = total - present;
+
+  document.getElementById("total").textContent = total;
+  document.getElementById("present").textContent = present;
+  document.getElementById("absent").textContent = absent;
+
+  document.getElementById("percentage").textContent =
+    (total ? Math.round(present / total * 100) : 0) + "%";
+
+  document.getElementById("history").innerHTML =
+    history.map(h => `
+      <tr>
+        <td>${h.name}</td>
+        <td>${h.roll}</td>
+        <td>${h.date}</td>
+        <td>${h.time}</td>
+      </tr>
+    `).join("");
+}
+
+render();
+</script>
+
+</body>
+</html>
